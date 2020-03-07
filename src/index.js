@@ -25,7 +25,7 @@ function genVoronoi() {
   findOffset(-0.2);
   draw();
   if (nPoly.length != 0) {
-    fitBox(nPoly);
+    OBBSubdivide(nPoly);
   }
 }
 
@@ -58,6 +58,19 @@ function OBBSubdivide(poly) {
 
   // 2. Slice the space along the shorter axis of the OBB
   //let parts = slice( obb.shorterAxis, space );
+  for (let i = 0; i < poly.length; i++) {
+    drawPoint(poly[i], "green");
+    let p1 = poly[i];
+    let p2;
+    if (i === poly.length - 1) {
+      p2 = poly[0];
+    } else {
+      p2 = poly[i + 1];
+    }
+    console.log([p1, p2]);
+    lineIntersect([p1, p2], obb[1]);
+    // console.log("side");
+  }
 
   // 3. Check validity of all children, terminate if any are not valid
   // This is the base case
@@ -69,13 +82,63 @@ function OBBSubdivide(poly) {
   //  return obb_subdivide( part );
 }
 
+function slicePoly(poly, line) {}
+
+function lineIntersect(pLine, cLine) {
+  //Rise over run
+  let m1 = (pLine[1][1] - pLine[0][1]) / (pLine[1][0] - pLine[0][0]);
+  let m2 = (cLine[1][1] - cLine[0][1]) / (cLine[1][0] - cLine[0][0]);
+
+  let b1 = pLine[0][1] - m1 * pLine[0][0];
+  let b2 = cLine[0][1] - m2 * cLine[0][0];
+
+  let intX = (b2 - b1) / (m1 - m2);
+  let intY = m1 * intX + b1;
+
+  if (isPointOnLine([intX, intY], pLine)) {
+    drawPoint([intX, intY], "purple");
+  }
+  //if intY is between the y values of one line && intX is between x values of that same line, yes intersect
+}
+
+function isPointOnLine(pt, line) {
+  let xIn = false,
+    yIn = false;
+  let xMax, xMin, yMax, yMin;
+  if (line[0][0] > line[1][0]) {
+    xMax = line[0][0];
+    xMin = line[1][0];
+  } else {
+    xMax = line[1][0];
+    xMin = line[0][0];
+  }
+  if (line[0][1] > line[1][1]) {
+    yMax = line[0][1];
+    yMin = line[1][1];
+  } else {
+    yMax = line[1][1];
+    yMin = line[0][1];
+  }
+  if (pt[0] < xMax && pt[0] > xMin) {
+    xIn = true;
+  }
+  if (pt[1] < yMax && pt[1] > yMin) {
+    yIn = true;
+  }
+  if (xIn && yIn) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
 function fitBox(plot) {
   //For each side:
   ctx.strokeStyle = "red";
-  console.log(plot);
+  //console.log(plot);
   let minArea = 0;
   let top, projBase, base1, base2;
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < plot.length - 1; i++) {
     //console.log("side# " + i)
     let p1, p2;
     p1 = plot[i];
@@ -127,13 +190,13 @@ function fitBox(plot) {
       var yS = projPoints[q][1] - centroid[1];
       var dist = Math.hypot(xS, yS);
 
-      if (dist > furthL && projPoints[q][0] < left[0]) {
+      if (dist >= furthL && projPoints[q][0] <= left[0]) {
         left = projPoints[q];
         furthL = dist;
-      } else if (dist > furthR && projPoints[q][0] > right[0]) {
+      } else if (dist >= furthR && projPoints[q][0] >= right[0]) {
         right = projPoints[q];
         furthR = dist;
-      }
+      } //Need elses in case points are on exact same X?
     }
     //console.log(longestSide);
     //drawPoint(left, "yellow");
@@ -172,9 +235,26 @@ function fitBox(plot) {
   drawPoint(base2, "red");
 
   let finalOb = [base1, base2, newCorner1, newCorner2, base1];
+  let topMid = centroidOf([newCorner1, newCorner2]);
+  let botMid = centroidOf([base1, base2]);
+  let midline = [topMid, botMid];
   drawShape(finalOb);
 
-  return finalOb;
+  drawLine(midline[0], midline[1], "red", 2);
+
+  return [finalOb, midline];
+}
+
+function centroidOf(points) {
+  let totX = 0,
+    totY = 0;
+  for (let i = 0; i < points.length; i++) {
+    totX += points[i][0];
+    totY += points[i][1];
+  }
+  totX = totX / points.length;
+  totY = totY / points.length;
+  return [totX, totY];
 }
 
 function varDists(p1, p2) {
