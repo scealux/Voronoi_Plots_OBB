@@ -1,5 +1,4 @@
 import { Delaunay } from "d3-delaunay";
-import { createContext } from "vm";
 var seedrandom = require("seedrandom");
 
 var canvas = document.getElementById("myCanvas");
@@ -9,99 +8,208 @@ canvas.height = window.innerHeight;
 var cWidth = canvas.width;
 var cHeight = canvas.height;
 var cPoints = 5;
-var centerPoint;
 var points, del, vor;
 var nonInfin = [];
-var nPoly = [];
-var plots = [];
 
 var sRnd = seedrandom("ca"); //Random Num for sites
 
 function genVoronoi() {
-  //beginPath, moveTo, lineTo, stroke
   del = Delaunay.from(points);
   vor = del.voronoi([0, 0, cWidth, cHeight]);
   findInfinite();
-  findOffset(-0.2);
+  let cell = vor.cellPolygon(nonInfin[0]);
+  plotify(cell);
   draw();
-  if (nPoly.length != 0) {
-    OBBSubdivide(nPoly);
-  }
 }
 
-function findOffset(offs) {
-  for (var i = 0; i < nonInfin.length; i++) {
-    //For each non-infinite cell
-    var oPoly = vor.cellPolygon(nonInfin[i]);
-    //console.log(vor.cellPolygon(nonInfin[i]));
-    centerPoint = [points[nonInfin[i]][0], points[nonInfin[i]][1]];
-    nPoly = [];
-    for (var j = 0; j < oPoly.length; j++) {
-      //x/y 1 always center point x/y2 outside point;
-      var x1 = centerPoint[0];
-      var y1 = centerPoint[1];
-      var x2 = oPoly[j][0];
-      var y2 = oPoly[j][1];
+function offsetCell(cell, offs, center) {
+  let oCell = [];
+  for (var j = 0; j < cell.length; j++) {
+    //x/y 1 always center point x/y2 outside point;
+    var x1 = center[0];
+    var y1 = center[1];
+    var x2 = cell[j][0];
+    var y2 = cell[j][1];
 
-      var xMod = (x2 - x1) * offs;
-      var yMod = (y2 - y1) * offs;
+    var xMod = (x2 - x1) * offs;
+    var yMod = (y2 - y1) * offs;
 
-      nPoly[j] = [xMod + x2, yMod + y2];
-    }
+    oCell[j] = [xMod + x2, yMod + y2];
+  }
+  return oCell;
+}
+
+function plotOffset(pntArr, offs) {
+  let cent = centroidOf(pntArr);
+  let offPoly = [];
+  for (let i = 0; i < pntArr.length; i++) {
+    //x/y 1 always center point x/y2 outside point;
+
+    var x1 = cent[0];
+    var y1 = cent[1];
+    var x2 = pntArr[i][0];
+    var y2 = pntArr[i][1];
+    let dist = Math.hypot(x1 - x2, y1 - y2);
+
+    var xMod = ((x2 - x1) * offs) / dist;
+    var yMod = ((y2 - y1) * offs) / dist;
+
+    offPoly[i] = [xMod + x2, yMod + y2];
+  }
+  return offPoly;
+}
+
+function plotify(cell) {
+  let parts = [];
+  let center = [points[nonInfin[0]][0], points[nonInfin[0]][1]];
+  let oCell = offsetCell(cell, -0.02, center);
+
+  if (oCell.length !== 0) {
+    OBBSubdivide(oCell, parts);
+  }
+  //console.log(parts);
+
+  for (let i = 0; i < parts.length; i++) {
+    let offs = plotOffset(parts[i], -3);
+    fillShape(offs, i * 7 + ",0,0.25");
   }
 }
 
 //Guided by: https://martindevans.me/game-development/2015/12/27/Procedural-Generation-For-Dummies-Lots/
-function OBBSubdivide(poly) {
+function OBBSubdivide(poly, arr) {
   // 1. Fit an Object Aligned Bounding Box around the space
-  var obb = fitBox(poly);
-
+  let obb = fitBox(poly);
+  //fillShape(obb[0], "100,100,100,0.1");
   // 2. Slice the space along the shorter axis of the OBB
   //let parts = slice( obb.shorterAxis, space );
-  for (let i = 0; i < poly.length; i++) {
-    drawPoint(poly[i], "green");
-    let p1 = poly[i];
-    let p2;
-    if (i === poly.length - 1) {
-      p2 = poly[0];
-    } else {
-      p2 = poly[i + 1];
-    }
-    console.log([p1, p2]);
-    lineIntersect([p1, p2], obb[1]);
-    // console.log("side");
-  }
+  let parts = slicePoly(poly, obb[1]); //Returns 2 polygons
 
   // 3. Check validity of all children, terminate if any are not valid
   // This is the base case
   //if ( parts.Any( IsNotValid ) )
   //  return space;
+  for (let i = 0; i < parts.length; i++) {
+    if (areaOf(parts[i]) < 2000) {
+      arr.push(poly);
+      return poly;
+    }
+    let asp = fitBox(parts[i]);
+    //console.log(asp[2]);
+    if (asp[2] > 2) {
+      arr.push(poly);
+      return poly;
+    }
+  }
 
   // 4. Recursively apply this algorithm to all parts
   //for (part in parts)
   //  return obb_subdivide( part );
+  OBBSubdivide(parts[0], arr);
+  OBBSubdivide(parts[1], arr);
 }
 
-function slicePoly(poly, line) {}
+function aspectRatioOf(piece) {
+  let xS = [],
+    yS = [];
+  for (let i = 0; i < piece.length; i++) {
+    xS.push(piece[i][0]);
+    yS.push(piece[i][1]);
+  }
+
+  return (
+    (Math.max(...yS) - Math.min(...yS)) / (Math.max(...xS) - Math.min(...xS))
+  );
+}
+
+//Guided by: https://www.mathopenref.com/coordpolygonarea.html
+function areaOf(piece) {
+  let dividend = 0;
+  for (let i = 0; i < piece.length - 1; i++) {
+    let p1 = piece[i];
+    let p2 = piece[i + 1];
+    dividend += p1[0] * p2[1] - p1[1] * p2[0];
+  }
+  //(xn*y1)-(yn*x1)
+  dividend +=
+    piece[piece.length - 1][0] * piece[0][1] -
+    piece[piece.length - 1][1] * piece[0][0];
+
+  return dividend / 2;
+}
+
+function slicePoly(poly, line) {
+  var whole = [...poly];
+
+  for (let i = 0; i < whole.length; i++) {
+    //For each side
+    let p1 = whole[i];
+    let p2;
+    if (i === whole.length - 1) {
+      p2 = whole[0];
+    } else {
+      p2 = whole[i + 1];
+    }
+    let interPoint = lineIntersect([p1, p2], line);
+    if (interPoint) {
+      //If there is an intersection
+      //splice in the points
+      whole.splice(i + 1, 0, interPoint, interPoint);
+      i += 2;
+    }
+  }
+  whole.pop(); //remove repeated point at the end
+  return polyArraySplitter(whole);
+}
+
+function polyArraySplitter(polyArray) {
+  //Loop through points, find where points are duplicated and split there
+  let left = [],
+    right = [];
+  let addingToLeft = true;
+  //fillShape(polyArray, "0,0,0");
+  for (let i = 0; i < polyArray.length; i++) {
+    if (polyArray[i] === polyArray[i + 1]) {
+      if (addingToLeft) {
+        addingToLeft = false;
+        left.push(polyArray[i]);
+        i++;
+      } else {
+        addingToLeft = true;
+        right.push(polyArray[i]);
+        i++;
+      }
+    }
+    if (addingToLeft) {
+      left.push(polyArray[i]);
+    } else {
+      right.push(polyArray[i]);
+    }
+  }
+  left.push(left[0]);
+  right.push(right[0]);
+
+  return [left, right];
+}
 
 function lineIntersect(pLine, cLine) {
-  //Rise over run
+  //Slopes
   let m1 = (pLine[1][1] - pLine[0][1]) / (pLine[1][0] - pLine[0][0]);
   let m2 = (cLine[1][1] - cLine[0][1]) / (cLine[1][0] - cLine[0][0]);
-
+  //
   let b1 = pLine[0][1] - m1 * pLine[0][0];
   let b2 = cLine[0][1] - m2 * cLine[0][0];
 
   let intX = (b2 - b1) / (m1 - m2);
   let intY = m1 * intX + b1;
 
-  if (isPointOnLine([intX, intY], pLine)) {
-    drawPoint([intX, intY], "purple");
+  if (isPointOnLineSeg([intX, intY], pLine)) {
+    return [intX, intY];
+  } else {
+    return false;
   }
-  //if intY is between the y values of one line && intX is between x values of that same line, yes intersect
 }
 
-function isPointOnLine(pt, line) {
+function isPointOnLineSeg(pt, line) {
   let xIn = false,
     yIn = false;
   let xMax, xMin, yMax, yMin;
@@ -132,30 +240,29 @@ function isPointOnLine(pt, line) {
   }
 }
 
-function fitBox(plot) {
-  //For each side:
+function fitBox(plot, other) {
   ctx.strokeStyle = "red";
-  //console.log(plot);
   let minArea = 0;
-  let top, projBase, base1, base2;
+  let top, projBase, base1, base2, h, w, asp;
+  //For each side...
   for (let i = 0; i < plot.length - 1; i++) {
-    //console.log("side# " + i)
     let p1, p2;
     p1 = plot[i];
     if (i === plot.length - 1) {
       p2 = plot[0];
     } else {
+      //...including the end to the beginning...
       p2 = plot[i + 1];
     }
 
-    //Project the points
+    //...project the other points sum the x's and y's & record the one projected the furthest...
     var projPoints = [];
     let heighest,
       base,
       projXs = 0,
       projYs = 0;
-
     var height = 0;
+
     for (let z = 0; z < plot.length; z++) {
       var point = projectPointToLine(plot[z], p1, p2, false);
       let dist = Math.hypot(plot[z][0] - point[0], plot[z][1] - point[1]);
@@ -176,12 +283,11 @@ function fitBox(plot) {
 
     let centroid = [projXs, projYs];
 
-    //Find the furthest 2 points from the center
+    //Find the furthest 2 points from the centroid
     var left = centroid;
     var right = centroid;
     var furthL = 0;
     var furthR = 0;
-    var secondFurth = 0;
 
     //Check the distance of each projected point against the others.
     //Record the longest distance
@@ -198,51 +304,68 @@ function fitBox(plot) {
         furthR = dist;
       } //Need elses in case points are on exact same X?
     }
-    //console.log(longestSide);
+
     //drawPoint(left, "yellow");
     //drawPoint(right, "green");
     //drawLine(left, right, "green", 2);
 
     var width = furthL + furthR;
 
+    let aspTest;
+
+    if (height / width <= 1) {
+      aspTest = width / height;
+    } else {
+      aspTest = height / width;
+    }
+
     var area = height * width;
+
     if (minArea === 0) {
       top = heighest;
       projBase = base;
       base1 = left;
       base2 = right;
       minArea = area;
+      asp = aspTest;
+      h = height;
+      w = width;
     } else if (area < minArea) {
       top = heighest;
       projBase = base;
       base1 = left;
       base2 = right;
       minArea = area;
+      asp = aspTest;
+      h = height;
+      w = width;
     }
   }
 
-  let dist1 = varDists(base1, projBase);
+  //console.log({base1});
 
+  let dist1 = varDists(base1, projBase);
   let dist2 = varDists(base2, projBase);
 
   let newCorner1 = [top[0] + dist2[0], top[1] + dist2[1]];
-  drawPoint(newCorner1, "red");
-
   let newCorner2 = [top[0] + dist1[0], top[1] + dist1[1]];
-  drawPoint(newCorner2, "red");
+  let topMid, botMid;
+  let boundBox = [base1, base2, newCorner1, newCorner2, base1];
 
-  drawPoint(base1, "red");
-  drawPoint(base2, "red");
-
-  let finalOb = [base1, base2, newCorner1, newCorner2, base1];
-  let topMid = centroidOf([newCorner1, newCorner2]);
-  let botMid = centroidOf([base1, base2]);
+  console.log(asp);
+  if (h > w) {
+    topMid = centroidOf([base2, newCorner1]);
+    botMid = centroidOf([base1, newCorner2]);
+  } else {
+    topMid = centroidOf([newCorner1, newCorner2]);
+    botMid = centroidOf([base1, base2]);
+  }
   let midline = [topMid, botMid];
-  drawShape(finalOb);
 
-  drawLine(midline[0], midline[1], "red", 2);
+  //fillShape(boundBox, "100,100,100, 0.5");
+  //drawLine(midline[0], midline[1], "red", 2);
 
-  return [finalOb, midline];
+  return [boundBox, midline, asp];
 }
 
 function centroidOf(points) {
@@ -263,19 +386,28 @@ function varDists(p1, p2) {
   return [xDif, yDif];
 }
 
-function drawShape(pntArr, color) {
-  ctx.fillStyle = "rgba(225,225,225,0.5)";
+function fillShape(pntArr, color) {
+  ctx.fillStyle = "rgba(" + color + ")";
   ctx.beginPath();
   ctx.moveTo(pntArr[0][0], pntArr[0][1]);
   for (let z = 0; z < pntArr.length; z++) {
     ctx.lineTo(pntArr[z][0], pntArr[z][1]);
   }
+  ctx.closePath();
   ctx.fill();
 }
 
-function drawPoint(point, color) {
+function drawPoint(point, color, rad) {
+  if (rad === undefined) {
+    rad = 4;
+  }
+  if (color === undefined) {
+    color = "red";
+  }
   ctx.fillStyle = color;
-  ctx.fillRect(point[0] - 5, point[1] - 5, 10, 10);
+  ctx.beginPath();
+  ctx.arc(point[0], point[1], rad, 0, 2 * Math.PI, false);
+  ctx.fill();
 }
 
 function drawLine(point1, point2, color, weight) {
@@ -304,13 +436,11 @@ function projectPointToLine(p, v1, v2, draw) {
   return pp;
 }
 
-function dotProduct(e1, e2) {
-  return e1[0] * e2[1] - e1[1] * e2[0];
-}
-
+//Loops through voronoi cells and separates non-infinite cells out.
 function findInfinite() {
   for (var i = 0; i < vor.vectors.length; i += 4) {
     if (vor.vectors[i] !== 0) {
+      //If cell is infinite, color it.
       ctx.beginPath();
       ctx.fillStyle = "rgba(225," + 10 * i + ",225,0.5)";
       vor.renderCell(i / 4, ctx);
@@ -355,23 +485,12 @@ function draw() {
   ctx.beginPath();
   vor.render(ctx);
   ctx.strokeStyle = "black";
+  ctx.lineWidth = 3;
   ctx.stroke();
 
-  for (var i = 0; i < points.length; i++) {
-    ctx.fillStyle = "black";
-    ctx.beginPath();
-    ctx.arc(points[i][0], points[i][1], 6, 0, 2 * Math.PI, false);
-    ctx.fill();
-  }
-
-  if (nPoly.length > 2) {
-    ctx.beginPath();
-    ctx.moveTo(nPoly[0][0], nPoly[0][1]);
-    for (var k = 1; k < nPoly.length; k++) {
-      ctx.lineTo(nPoly[k][0], nPoly[k][1]);
-    }
-    ctx.stroke();
-  }
+  // for (var i = 0; i < points.length; i++) {
+  //   drawPoint(points[i], "black", 7);
+  // }
   //window.requestAnimationFrame(draw);
 }
 
