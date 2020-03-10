@@ -21,6 +21,13 @@ export function offsetCell(cell, offs, center) {
   return oCell;
 }
 
+export function drawPlots(plots) {
+  //console.log(plots)
+  for (let i = 0; i < plots.length; i++) {
+    fillShape(plots[i], i * 7 + ",0,0.25");
+  }
+}
+
 export function plotOffset(pntArr, offs) {
   let cent = centroidOf(pntArr);
   let offPoly = [];
@@ -55,7 +62,7 @@ export function plotify(cell, points, nonInfin, ctx) {
   for (let i = 0; i < parts.length; i++) {
     let offs = plotOffset(parts[i], -3);
     plots.push(offs);
-    fillShape(offs, i * 7 + ",0,0.25");
+    //fillShape(offs, i * 7 + ",0,0.25");
   }
   return plots;
 }
@@ -417,8 +424,8 @@ export function findInfinite(vor, nonInfin) {
 }
 
 export function genPoints(cPoints, sRnd, canvas, callback) {
-  let cWidth = canvas.width;
-  let cHeight = canvas.height;
+  let cWidth = 800;
+  let cHeight = 800;
   let points = [];
   var radius = function() {
     if (cWidth > cHeight) {
